@@ -2,9 +2,8 @@ import tkinter as tk
 import subprocess
 import os
 
-# Permissions & Engine Prep
+# 1. PERMISSIONS & ENVIRONMENT
 os.system("sudo chmod 0666 /dev/uinput > /dev/null 2>&1")
-
 YDO_ENV = os.environ.copy()
 YDO_ENV["YDOTOOL_SOCKET"] = "/tmp/ydotool.socket"
 
@@ -14,147 +13,122 @@ class PookeyBoard:
         self.root.title("PookeyBoard")
         self.is_shift = False
         self.is_caps = False
-
-        # Modifier States
-        self.mods = {"CTRL": False, "SUPER": False, "ALT": False, "ALTGR": False}
-        self.mod_map = {"CTRL": "29", "SUPER": "125", "ALT": "56", "ALTGR": "100"}
+        self.mods = {"ctrl": False, "super": False, "alt": False, "altgr": False}
+        self.mod_map = {"ctrl": "29", "super": "125", "alt": "56", "altgr": "100", "shift": "42", "shift_r": "54"}
 
         self.root.overrideredirect(True)
         self.root.attributes('-topmost', True)
+        self.root.geometry("850x300") # Slightly taller to accommodate bigger text
+        self.root.configure(bg="#111")
+
+        # Hardware Mapping
+        self.key_map = {
+            "¸": "41", "1": "2", "2": "3", "3": "4", "4": "5", "5": "6", "6": "7", "7": "8", "8": "9", "9": "10", "0": "11", "'": "12", "+": "13", "back": "14",
+            "tab": "15", "q": "16", "w": "17", "e": "18", "r": "19", "t": "20", "z": "21", "u": "22", "i": "23", "o": "24", "p": "25", "š": "26", "đ": "27", "enter": "28",
+            "a": "30", "s": "31", "d": "32", "f": "33", "g": "34", "h": "35", "j": "36", "k": "37", "l": "38", "č": "39", "ć": "40", "ž": "43",
+            "<": "86", "y": "44", "x": "45", "c": "46", "v": "47", "b": "48", "n": "49", "m": "50", ",": "51", ".": "52", "-": "53", "up": "103",
+            "space": "57", "left": "105", "down": "108", "right": "106", "shift_r": "54"
+        }
+
         self.setup_ui()
 
     def setup_ui(self):
-        # Title Bar
-        self.title_bar = tk.Frame(self.root, bg="#111", relief="raised", bd=1)
+        self.title_bar = tk.Frame(self.root, bg="#000", height=22)
         self.title_bar.pack(fill="x")
-        self.title_label = tk.Label(self.title_bar, text=" ⌨️ Pookey Slovenian QWERTZ", fg="#888", bg="#111", font=("Arial", 9, "bold"))
-        self.title_label.pack(side=tk.LEFT)
-        tk.Button(self.title_bar, text=" [X] ", bg="#111", fg="#f44", bd=0, command=self.root.destroy, takefocus=0).pack(side=tk.RIGHT)
-
+        self.title_bar.pack_propagate(False)
+        tk.Label(self.title_bar, text=" 🇸🇮 Pookey 4.2", fg="#666", bg="#000", font=("Arial", 8)).pack(side=tk.LEFT, padx=5)
+        tk.Button(self.title_bar, text="✕", bg="#000", fg="#933", bd=0, command=self.root.destroy).pack(side=tk.RIGHT, padx=5)
+        
         self.title_bar.bind("<Button-1>", self.start_move)
         self.title_bar.bind("<B1-Motion>", self.on_motion)
 
-        self.key_frame = tk.Frame(self.root, bg="#222", bd=2, relief="groove")
-        self.key_frame.pack(fill="both", expand=True)
+        self.key_frame = tk.Frame(self.root, bg="#111")
+        self.key_frame.pack(fill="both", expand=True, padx=2, pady=2)
 
-        # SLOVENIAN QWERTZ LAYOUT
         self.layout_normal = [
             ["¸","1","2","3","4","5","6","7","8","9","0","'","+","BACK"],
             ["TAB","q","w","e","r","t","z","u","i","o","p","š","đ","ENTER"],
             ["CAPS","a","s","d","f","g","h","j","k","l","č","ć","ž"],
-            ["SHIFT","<","y","x","c","v","b","n","m",",",".","-","UP"],
+            ["SHIFT","<","y","x","c","v","b","n","m",",",".","-","UP","SHIFT "],
             ["CTRL","SUPER","ALT","SPACE","ALTGR","LEFT","DOWN","RIGHT"]
         ]
-
+        
         self.layout_shift = [
             ["¨","!","\"","#","$","%","&","/","(",")","=","?","*","BACK"],
             ["TAB","Q","W","E","R","T","Z","U","I","O","P","Š","Đ","ENTER"],
             ["CAPS","A","S","D","F","G","H","J","K","L","Č","Ć","Ž"],
-            ["SHIFT",">","Y","X","C","V","B","N","M",";",":","_","UP"],
+            ["SHIFT",">","Y","X","C","V","B","N","M",";",":","_","UP","SHIFT "],
             ["CTRL","SUPER","ALT","SPACE","ALTGR","LEFT","DOWN","RIGHT"]
         ]
         self.render_keys()
 
     def render_keys(self):
-        for widget in self.key_frame.winfo_children():
-            widget.destroy()
+        for widget in self.key_frame.winfo_children(): widget.destroy()
+        cur_layout = self.layout_shift if (self.is_shift or self.is_caps) else self.layout_normal
+        
+        # KEY FONT - UPDATED TO 12 BOLD
+        key_font = ("Arial", 12, "bold")
 
-        active_shift = self.is_shift or self.is_caps
-        current_layout = self.layout_shift if active_shift else self.layout_normal
-
-        for row in current_layout:
-            row_frame = tk.Frame(self.key_frame, bg="#222")
+        for row in cur_layout:
+            row_frame = tk.Frame(self.key_frame, bg="#111")
             row_frame.pack(fill="both", expand=True)
             for key in row:
-                bg_color = "#444"
-                if key == "SHIFT" and self.is_shift: bg_color = "#933" # Dark Red
-                if key == "CAPS" and self.is_caps: bg_color = "#933"
-                if key in self.mods and self.mods[key]: bg_color = "#373" # Dark Green
-
-                w = 8 if key in ["SPACE", "ENTER", "BACK", "SHIFT"] else 4
-                btn = tk.Button(row_frame, text=key, width=w, height=2, fg="white", bg=bg_color,
-                                activebackground="#666", takefocus=0, command=lambda k=key: self.handle_press(k))
+                bg = "#222"
+                is_active_shift = (key.strip() == "SHIFT") and (self.is_shift or self.is_caps)
+                if is_active_shift: bg = "#622"
+                if key.lower() in self.mods and self.mods[key.lower()]: bg = "#252"
+                
+                k_clean = key.strip().lower()
+                
+                if k_clean == "space":
+                    btn = tk.Button(row_frame, text="", fg="#ccc", bg=bg, font=key_font,
+                                    relief="flat", activebackground="#333", bd=0, width=30,
+                                    command=lambda k="space": self.handle_press(k))
+                else:
+                    btn = tk.Button(row_frame, text=key, fg="#ccc", bg=bg, font=key_font,
+                                    relief="flat", activebackground="#333", bd=0,
+                                    command=lambda k=key: self.handle_press(k))
+                
                 btn.pack(side=tk.LEFT, padx=1, pady=1, fill="both", expand=True)
 
     def handle_press(self, key):
-        if key == "SHIFT":
+        k_low = key.strip().lower()
+        if k_low == "shift":
             self.is_shift = not self.is_shift
-            self.render_keys()
-        elif key == "CAPS":
+        elif k_low == "caps":
             self.is_caps = not self.is_caps
-            self.render_keys()
-        elif key in self.mods:
-            if key == "SUPER":
-                # Instant fire for Super key
-                subprocess.run(["ydotool", "key", "125:1", "125:0"], env=YDO_ENV)
-            else:
-                self.mods[key] = not self.mods[key]
-            self.render_keys()
+        elif k_low in self.mods:
+            if k_low == "super": subprocess.run(["ydotool", "key", "125:1", "125:0"], env=YDO_ENV)
+            else: self.mods[k_low] = not self.mods[k_low]
         else:
-            self.type_key(key)
-            # Auto-reset Shift after one key
-            if self.is_shift:
-                self.is_shift = False
-            # Auto-reset Mods after one key (CTRL+C, etc)
+            self.send_hardware_signal(k_low)
+            if self.is_shift: self.is_shift = False
             for m in self.mods: self.mods[m] = False
-            self.render_keys()
+        self.render_keys()
 
-    def type_key(self, key):
-        # 1. Action Keys (Must use scancodes)
-        special = {
-            "BACK": "14", "ENTER": "28", "TAB": "15", "SPACE": "57",
-            "UP": "103", "DOWN": "108", "LEFT": "105", "RIGHT": "106",
-            "¸": "41", "'": "12", "+": "13", "<": "86", "-": "53"
+    def send_hardware_signal(self, key):
+        lookup = {
+            "¨": "41", "!": "2", "\"": "3", "#": "4", "$": "5", "%": "6", "&": "7", "/": "8", "(": "9", ")": "10", "=": "11", "?": "12", "*": "13",
+            ">": "86", ";": "51", ":": "52", "_": "53"
         }
-
-        try:
-            # 2. Handle AltGr + v override for @
-            if self.mods["ALTGR"] and key.lower() == "v":
-                subprocess.run(["ydotool", "type", "@"], env=YDO_ENV)
-                return
-
-            # 3. Handle Special Keys (Arrows, Tab, etc)
-            if key in special:
-                cmd = ["ydotool", "key"]
-                # Add modifiers if any are active
-                for mod, active in self.mods.items():
-                    if active: cmd.append(f"{self.mod_map[mod]}:1")
-
-                cmd.extend([f"{special[key]}:1", f"{special[key]}:0"])
-
-                for mod, active in self.mods.items():
-                    if active: cmd.append(f"{self.mod_map[mod]}:0")
-                subprocess.run(cmd, env=YDO_ENV)
-
-            # 4. Handle Normal Typing (š, đ, z, y, etc)
-            else:
-                if any(self.mods.values()):
-                    # If CTRL or ALT is active, we try to wrap the character
-                    # This works for combos like CTRL+c
-                    cmd = ["ydotool", "key"]
-                    for mod, active in self.mods.items():
-                        if active: cmd.append(f"{self.mod_map[mod]}:1")
-                    subprocess.run(cmd, env=YDO_ENV) # Hold mods
-                    subprocess.run(["ydotool", "type", key], env=YDO_ENV) # Type char
-                    # Release mods
-                    cmd = ["ydotool", "key"]
-                    for mod, active in self.mods.items():
-                        if active: cmd.append(f"{self.mod_map[mod]}:0")
-                    subprocess.run(cmd, env=YDO_ENV)
-                else:
-                    # Just standard typing
-                    subprocess.run(["ydotool", "type", key], env=YDO_ENV)
-
-        except Exception as e:
-            print(f"Error: {e}")
+        key_code_name = "shift_r" if key == "shift " else key
+        code = lookup.get(key) or self.key_map.get(key_code_name)
+        
+        if code:
+            cmd = ["ydotool", "key"]
+            if self.is_shift or self.is_caps: cmd.append("42:1")
+            for mod, active in self.mods.items():
+                if active: cmd.append(f"{self.mod_map[mod]}:1")
+            cmd.extend([f"{code}:1", f"{code}:0"])
+            for mod, active in self.mods.items():
+                if active: cmd.append(f"{self.mod_map[mod]}:0")
+            if self.is_shift or self.is_caps: cmd.append("42:0")
+            subprocess.run(cmd, env=YDO_ENV)
 
     def start_move(self, event): self.root.x, self.root.y = event.x, event.y
     def on_motion(self, event):
-        deltax = event.x - self.root.x
-        deltay = event.y - self.root.y
-        self.root.geometry(f"+{self.root.winfo_x() + deltax}+{self.root.winfo_y() + deltay}")
+        x = self.root.winfo_x() + (event.x - self.root.x); y = self.root.winfo_y() + (event.y - self.root.y)
+        self.root.geometry(f"+{x}+{y}")
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = PookeyBoard(root)
-    root.mainloop()
+    root = tk.Tk(); app = PookeyBoard(root); root.mainloop()
