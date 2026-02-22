@@ -5,7 +5,6 @@ import json
 import urllib.request
 
 # 1. PERMISSIONS & ENVIRONMENT
-os.system("sudo chmod 0666 /dev/uinput > /dev/null 2>&1")
 YDO_ENV = os.environ.copy()
 YDO_ENV["YDOTOOL_SOCKET"] = "/tmp/ydotool.socket"
 
@@ -18,19 +17,16 @@ class PookeyBoard:
         self.root = root
         self.buffer = ""
         self.words = {}
-        self.load_config()
-        self.load_dictionary()
-
         self.is_shift = False
         self.is_caps = False
         self.is_minimized = False
-        self.old_height = self.cfg['height']
-
-        # Repeat logic state
         self.repeat_job = None
-
         self.mods = {"ctrl": False, "alt": False, "altgr": False}
         self.mod_map = {"ctrl": "29", "alt": "56", "altgr": "100", "shift": "42"}
+
+        self.load_config()
+        self.old_height = self.cfg.get('height', 380)
+        self.load_dictionary()
 
         self.scancodes = {
             "¸": "41", "1": "2", "2": "3", "3": "4", "4": "5", "5": "6", "6": "7", "7": "8", "8": "9", "9": "10", "0": "11", "'": "12", "+": "13",
@@ -75,38 +71,52 @@ class PookeyBoard:
 
     def load_config(self):
         d = {"font_size": 14, "pred_font_size": 12, "width": 960, "height": 380, "x": 100, "y": 100}
-        if os.path.exists(CONFIG_FILE):
-            try:
+        try:
+            if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, 'r') as f: self.cfg = {**d, **json.load(f)}
-            except: self.cfg = d
-        else: self.cfg = d; self.save_config()
+            else: self.cfg = d
+        except: self.cfg = d
 
     def save_config(self):
-        with open(CONFIG_FILE, 'w') as f: json.dump(self.cfg, f, indent=4)
+        try:
+            with open(CONFIG_FILE, 'w') as f: json.dump(self.cfg, f, indent=4)
+        except: pass
 
     def load_dictionary(self):
-        if os.path.exists(DICT_FILE):
-            with open(DICT_FILE, 'r', encoding='utf-8') as f: self.words = json.load(f)
-        else:
-            try:
-                with urllib.request.urlopen(BASE_DICT_URL) as r:
-                    data = r.read().decode('utf-8'); [self.words.update({p[0].lower(): 1}) for p in [l.split() for l in data.splitlines()] if p]
+        try:
+            if os.path.exists(DICT_FILE):
+                with open(DICT_FILE, 'r', encoding='utf-8') as f: self.words = json.load(f)
+                keys = list(self.words.keys())
+                for w in keys:
+                    self.words[w] -= 1
+                    if self.words[w] <= 0: del self.words[w]
                 self.save_dictionary()
-            except: self.words = {"pookey": 1}
+            else:
+                self.words = {"pookey": 100}
+        except: self.words = {"pookey": 100}
 
     def save_dictionary(self):
-        with open(DICT_FILE, 'w', encoding='utf-8') as f: json.dump(self.words, f, ensure_ascii=False, indent=4)
+        try:
+            with open(DICT_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.words, f, ensure_ascii=False, indent=4)
+        except: pass
 
     def setup_ui(self):
         tb = tk.Frame(self.root, bg="#000", height=25); tb.pack(fill="x"); tb.pack_propagate(False)
-        tk.Label(tb, text="🇸🇮 Pookey 6.9", fg="#666", bg="#000", font=("Arial", 8)).pack(side=tk.LEFT, padx=10)
+        tk.Label(tb, text="PookeyBoard", fg="#09f", bg="#000", font=("Arial", 8, "bold")).pack(side=tk.LEFT, padx=10)
         tk.Button(tb, text="✕", bg="#000", fg="#933", bd=0, command=self.root.destroy).pack(side=tk.RIGHT, padx=5)
         self.min_btn = tk.Button(tb, text="—", bg="#000", fg="#666", bd=0, command=self.toggle_minimize); self.min_btn.pack(side=tk.RIGHT, padx=5)
         tb.bind("<Button-1>", self.start_move); tb.bind("<B1-Motion>", self.on_motion)
 
         self.pred_frame = tk.Frame(self.root, bg="#111", height=40); self.pred_frame.pack(fill="x", pady=(0, 2)); self.pred_frame.pack_propagate(False)
-        self.pred_btns = [tk.Button(self.pred_frame, text="", bg="#111" if i!=1 else "#1a1a1a", fg="#09f", font=("Arial", self.cfg['pred_font_size'], "bold" if i==1 else "normal"), relief="flat", bd=0, command=lambda idx=i: self.use_prediction(idx)) for i in range(3)]
-        for b in self.pred_btns: b.pack(side=tk.LEFT, fill="both", expand=True, padx=1)
+        self.pred_btns = []
+        for i in range(3):
+            # Middle button (index 1) is bold by default for best prediction
+            b = tk.Button(self.pred_frame, text="", bg="#111", fg="#09f",
+                          font=("Arial", self.cfg['pred_font_size'], "bold" if i==1 else "normal"),
+                          relief="flat", bd=0, command=lambda idx=i: self.use_prediction(idx))
+            b.pack(side=tk.LEFT, fill="both", expand=True, padx=1)
+            self.pred_btns.append(b)
 
         self.main_frame = tk.Frame(self.root, bg="#111"); self.main_frame.pack(fill="both", expand=True, padx=1, pady=1)
         self.grip = tk.Label(self.root, bg="#222", cursor="sizing"); self.grip.place(relx=1.0, rely=1.0, anchor="se", width=10, height=10); self.grip.bind("<B1-Motion>", self.on_resize)
@@ -116,7 +126,6 @@ class PookeyBoard:
         for w in self.main_frame.winfo_children(): w.destroy()
         if self.is_minimized: return
         layout = self.lay_a if self.mods["altgr"] else (self.lay_s if (self.is_shift or self.is_caps) else self.lay_n)
-
         for row in layout:
             rf = tk.Frame(self.main_frame, bg="#111"); rf.pack(fill="both", expand=True); rf.grid_rowconfigure(0, weight=1)
             for i, key in enumerate(row):
@@ -130,16 +139,12 @@ class PookeyBoard:
                 if kl in self.mods and self.mods[kl]: bg = "#252"
                 btn = tk.Button(rf, text=key if kl!="space" else "", fg="#ccc", bg=bg, font=("Arial", self.cfg["font_size"], "bold"), relief="flat", bd=0)
                 btn.grid(row=0, column=i, sticky="nsew", padx=1, pady=1)
-
-                # Bindings for repeat support and standard clicking
                 btn.bind("<Button-1>", lambda e, k=key: self.on_key_down(k))
                 btn.bind("<ButtonRelease-1>", lambda e: self.on_key_up())
 
     def on_key_down(self, key):
         self.handle_press(key)
-        kl = key.lower()
-        # Enable repeat for Backspace and Arrows
-        if kl in ["back", "←", "↓", "→", "↑"]:
+        if key.lower() in ["back", "←", "↓", "→", "↑"]:
             self.repeat_job = self.root.after(500, lambda: self.repeat_step(key))
 
     def repeat_step(self, key):
@@ -147,9 +152,7 @@ class PookeyBoard:
         self.repeat_job = self.root.after(50, lambda: self.repeat_step(key))
 
     def on_key_up(self):
-        if self.repeat_job:
-            self.root.after_cancel(self.repeat_job)
-            self.repeat_job = None
+        if self.repeat_job: self.root.after_cancel(self.repeat_job); self.repeat_job = None
 
     def handle_press(self, key):
         kl = key.lower()
@@ -157,48 +160,54 @@ class PookeyBoard:
         if kl == "caps": self.is_caps = not self.is_caps; self.render_keys(); return
         if kl in self.mods: self.mods[kl] = not self.mods[kl]; self.render_keys(); return
 
-        # Smart Prediction Deletion: CTRL + BACKSPACE
         if kl == "back" and self.mods["ctrl"]:
-            if self.buffer and self.buffer in self.words:
-                del self.words[self.buffer]; self.save_dictionary()
+            if self.buffer in self.words: del self.words[self.buffer]; self.save_dictionary()
             self.buffer = ""
         elif kl == "back": self.buffer = self.buffer[:-1]
         elif kl in ["space", "enter", "tab"]: self.buffer = ""
         elif len(key) == 1: self.buffer += kl
 
         if key in ["←","↓","→"] and not self.mods["altgr"]: kl = key + "_hw"
-        self.send_hardware_signal(kl)
-        self.update_predictions()
+        self.send_hardware_signal(kl); self.update_predictions()
         if self.is_shift: self.is_shift = False; self.render_keys()
 
-    def send_hardware_signal(self, key_label):
-        code = self.scancodes.get(key_label)
-        if self.mods["altgr"]:
-            if key_label == "<": code = "51"
-            elif key_label == ">": code = "52"
+    def send_hardware_signal(self, kl):
+        code = self.scancodes.get(kl)
+        if self.mods["altgr"] and kl == "<": code = "51"
+        elif self.mods["altgr"] and kl == ">": code = "52"
         if code:
             cmd = ["ydotool", "key"]
             if self.is_shift or self.is_caps: cmd.append("42:1")
-            for mod, active in self.mods.items():
-                if active: cmd.append(f"{self.mod_map[mod]}:1")
+            for m, a in self.mods.items():
+                if a: cmd.append(f"{self.mod_map[m]}:1")
             cmd.extend([f"{code}:1", f"{code}:0"])
-            for mod, active in self.mods.items():
-                if active: cmd.append(f"{self.mod_map[mod]}:0")
+            for m, a in self.mods.items():
+                if a: cmd.append(f"{self.mod_map[m]}:0")
             if self.is_shift or self.is_caps: cmd.append("42:0")
             subprocess.run(cmd, env=YDO_ENV)
 
     def update_predictions(self):
         if not self.buffer:
-            for b in self.pred_btns: b.config(text="")
+            for b in self.pred_btns: b.config(text="", bg="#111")
             return
-        m = sorted([w for w in self.words if w.startswith(self.buffer)], key=lambda w: self.words[w], reverse=True)[:3]
-        d = ["", m[0], ""] if len(m)==1 else (["", m[0], m[1]] if len(m)==2 else ([m[1], m[0], m[2]] if len(m)>=3 else ["","",""]))
-        for i in range(3): self.pred_btns[i].config(text=d[i])
+
+        # Dictionary matches (highest score first, excluding exact buffer match)
+        matches = sorted([w for w in self.words if w.startswith(self.buffer) and w != self.buffer], key=lambda w: self.words[w], reverse=True)
+
+        # Slot 0 (LEFT): Buffer / New Word Entry
+        is_new = self.buffer not in self.words
+        self.pred_btns[0].config(text=self.buffer, bg="#004d66" if is_new else "#111", fg="#00d2ff" if is_new else "#09f")
+
+        # Slot 1 (MIDDLE): Best prediction from dictionary
+        self.pred_btns[1].config(text=matches[0] if len(matches) > 0 else "", bg="#1a1a1a")
+
+        # Slot 2 (RIGHT): Second best prediction
+        self.pred_btns[2].config(text=matches[1] if len(matches) > 1 else "", bg="#111")
 
     def use_prediction(self, idx):
         word = self.pred_btns[idx].cget("text")
         if not word: return
-        self.words[word] = self.words.get(word, 0) + 100; self.save_dictionary()
+        self.words[word] = min(1000, self.words.get(word, 0) + 100); self.save_dictionary()
         cmd = ["ydotool", "key"] + ["14:1", "14:0"] * len(self.buffer)
         for char in word:
             c = self.scancodes.get(char.lower())
